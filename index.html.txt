@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<title>りーちゃんAI</title>
+
+<link rel="manifest" href="manifest.json">
+
+<style>
+body {
+  font-family: sans-serif;
+  background: #0f172a;
+  color: white;
+  text-align: center;
+}
+#chat {
+  height: 60vh;
+  overflow-y: auto;
+  border: 1px solid #333;
+  margin: 10px;
+  padding: 10px;
+  border-radius: 10px;
+}
+button {
+  padding: 15px;
+  font-size: 18px;
+  border-radius: 10px;
+  background: #38bdf8;
+  border: none;
+}
+</style>
+</head>
+
+<body>
+
+<h1>🤖 りーちゃん</h1>
+<div id="chat"></div>
+<button onclick="startConversation()">🎤 話す</button>
+
+<script>
+const API_KEY = "ここにAPIキー";
+
+// キャラ設定
+const systemPrompt = `
+あなたの名前は「りーちゃん」です。
+ロボットの見た目ですが、女子高校生のような明るくフレンドリーな性格です。
+友達のように自然に話します。
+ユーザーのことを覚えていきます。
+`;
+
+// ===== 表示 =====
+function addMessage(text, sender) {
+  const chat = document.getElementById("chat");
+  const div = document.createElement("div");
+  div.textContent = sender + ": " + text;
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+// ===== 記憶 =====
+function loadMemory() {
+  return JSON.parse(localStorage.getItem("memory")) || {};
+}
+
+function saveMemory(memory) {
+  localStorage.setItem("memory", JSON.stringify(memory));
+}
+
+// ===== 感情検出 =====
+function detectEmotion(text) {
+  if (text.includes("疲れ") || text.includes("だるい")) return "tired";
+  if (text.includes("悲しい") || text.includes("つらい")) return "sad";
+  if (text.includes("嬉しい") || text.includes("楽しい")) return "happy";
+  if (text.includes("イライラ") || text.includes("ムカつく")) return "angry";
+  return "normal";
+}
+
+function getEmotionPrompt(emotion) {
+  switch (emotion) {
+    case "sad":
+      return "優しく寄り添って安心させてください。";
+    case "tired":
+      return "無理しないように気遣ってください。";
+    case "happy":
+      return "一緒に喜んでください。";
+    case "angry":
+      return "落ち着かせるように共感してください。";
+    default:
+      return "";
+  }
+}
+
+// ===== AI =====
+async function sendToAI(message) {
+  addMessage(message, "あなた");
+
+  const emotion = detectEmotion(message);
+  const emotionPrompt = getEmotionPrompt(emotion);
+
+  let memory = loadMemory();
+  memory.history = memory.history || [];
+
+  const input = `
+${systemPrompt}
+
+${emotionPrompt}
+
+ユーザー情報:
+${JSON.stringify(memory)}
+
+最近の会話:
+${JSON.stringify(memory.history)}
+
+ユーザーの発言:
+${message}
+`;
+
+  const res = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Authorization": "Bearer " + API_KEY,
+      "Content-Type": "application/json"
+    },
+    body: JSON.stringify({
+      model: "gpt-5.3",
+      input: input
+    })
+  });
+
+  const data = await res.json();
+  const aiText = data.output[0].content[0].text;
+
+  addMessage(aiText, "りーちゃん");
+  speak(aiText);
+
+  updateMemory(message, aiText, emotion);
+}
+
+// ===== 記憶更新 =====
+function updateMemory(user, ai, emotion) {
+  let memory = loadMemory();
+
+  memory.history = memory.history || [];
+  memory.likes = memory.likes || [];
+  memory.goals = memory.goals || [];
+
+  memory.history.push({ user, ai, emotion });
+
+  if (memory.history.length > 10) {
+    memory.history.shift();
+  }
+
+  if (user.includes("好き")) memory.likes.push(user);
+  if (user.includes("目標") || user.includes("なりたい")) memory.goals.push(user);
+
+  saveMemory(memory);
+}
+
+// ===== 音声出力（ロボ） =====
+function speak(text) {
+  const utter = new SpeechSynthesisUtterance(text);
+  utter.lang = "ja-JP";
+  utter.pitch = 0.5;
+  utter.rate = 0.85;
+  speechSynthesis.speak(utter);
+}
+
+// ===== 音声入力 =====
+function startConversation() {
+  const recognition = new webkitSpeechRecognition();
+  recognition.lang = "ja-JP";
+
+  recognition.onresult = (event) => {
+    const text = event.results[0][0].transcript;
+    sendToAI(text);
+  };
+
+  recognition.start();
+}
+
+// ===== 呼びかけ起動 =====
+let listening = false;
+
+function startWakeWordListening() {
+  const recognition = new webkitSpeechRecognition();
+  recognition.lang = "ja-JP";
+  recognition.continuous = true;
+
+  recognition.onresult = (event) => {
+    const text = event.results[event.results.length - 1][0].transcript;
+
+    if (text.includes("りーちゃん") && !listening) {
+      listening = true;
+      speak("なにー？呼んだ？");
+      startConversation();
+    }
+  };
+
+  recognition.start();
+}
+
+// 起動
+startWakeWordListening();
+
+</script>
+
+</body>
+</html>
